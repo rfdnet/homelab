@@ -1,0 +1,206 @@
+name: ci
+on:
+  - push
+  - pull_request
+# To cancel running workflow when new commits pushed in a pull request
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  generate:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os:
+          - macos-latest
+          - ubuntu-latest
+    name: Generate
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Import environment variables from file
+        run: cat ".github/env" >> "$GITHUB_ENV"
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: ${{ env.golang-version }}
+      - run: make --always-make generate validate && git diff --exit-code
+  check-docs:
+    runs-on: ubuntu-latest
+    name: Check Documentation formatting and links
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Import environment variables from file
+        run: cat ".github/env" >> "$GITHUB_ENV"
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: ${{ env.golang-version }}
+      - run: make check-docs
+  lint:
+    runs-on: ubuntu-latest
+    name: Jsonnet linter
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Import environment variables from file
+        run: cat ".github/env" >> "$GITHUB_ENV"
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: ${{ env.golang-version }}
+      - run: make --always-make lint
+  fmt:
+    runs-on: ubuntu-latest
+    name: Jsonnet formatter
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Import environment variables from file
+        run: cat ".github/env" >> "$GITHUB_ENV"
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: ${{ env.golang-version }}
+      - run: make --always-make fmt && git diff --exit-code
+  unit-tests:
+    runs-on: ubuntu-latest
+    name: Unit tests
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Import environment variables from file
+        run: cat ".github/env" >> "$GITHUB_ENV"
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: ${{ env.golang-version }}
+      - run: make --always-make test
+  security-audit:
+    runs-on: ubuntu-latest
+    name: Run security analysis on manifests
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - run: make --always-make kubescape
+  e2e-tests:
+    name: E2E tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        kind-image:
+          - "kindest/node:v1.37.0"
+          - "kindest/node:v1.36.4"
+          - "kindest/node:v1.35.8"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Import environment variables from file
+        run: cat ".github/env" >> "$GITHUB_ENV"
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: ${{ env.golang-version }}
+      - name: Start kind cluster
+        uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2 # v1.15.0
+        with:
+          version: ${{ env.kind-version }}
+          node_image: ${{ matrix.kind-image }}
+          wait: 10s # Without default CNI, control-plane doesn't get ready until Cilium is installed
+          config: tests/e2e/kind/config.yml
+          cluster_name: e2e
+      - name: Install kube-router for NetworkPolicy support
+        run: |
+          kubectl apply -f tests/e2e/kind/kube-router.yaml
+      - name: Install kube-scheduler and kube-controller-manager services
+        run: |
+          kubectl apply -f tests/e2e/kind/kubernetesControlPlane-kubeControllerManagerPrometheusDiscoveryService.yaml && \
+          kubectl apply -f tests/e2e/kind/kubernetesControlPlane-kubeSchedulerPrometheusDiscoveryService.yaml
+      - name: Wait for cluster to finish bootstraping
+        run: kubectl wait --for=condition=Ready pods --all --all-namespaces --timeout=300s
+      - name: Create kube-prometheus stack
+        run: |
+          kubectl create -f manifests/setup
+          until kubectl get servicemonitors --all-namespaces ; do date; sleep 1; echo ""; done
+          kubectl create -f manifests/
+      - name: Wait for kube-prometheus stack to finish bootstraping
+        run: kubectl wait --for=condition=Ready pods --all -n monitoring --timeout=300s
+      - name: Check resources in all namespaces
+        if: always()
+        run: kubectl get services,endpoints,pods,prometheus,alertmanager --all-namespaces
+      - name: Check events in all namespaces
+        if: ${{ failure() }}
+        run: kubectl get events --all-namespaces
+      - name: Run tests
+        run: |
+          export KUBECONFIG="${HOME}/.kube/config"
+          make test-e2e
+
+  e2e-tests-metrics-server:
+    name: E2E tests (metrics-server)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Import environment variables from file
+        run: cat ".github/env" >> "$GITHUB_ENV"
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: ${{ env.golang-version }}
+      - name: Build metrics-server manifests
+        run: make manifests-metrics-server
+      - name: Start kind cluster
+        uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2 # v1.15.0
+        with:
+          version: ${{ env.kind-version }}
+          node_image: ${{ env.kind-image-metrics-server }}
+          wait: 300s
+          config: tests/e2e/kind/config.yml
+          cluster_name: e2e
+      - name: Wait for cluster to finish bootstraping
+        run: kubectl wait --for=condition=Ready pods --all --all-namespaces --timeout=300s
+      - name: Create kube-prometheus stack with metrics-server
+        run: |
+          kubectl create -f manifests/setup
+          until kubectl get servicemonitors --all-namespaces ; do date; sleep 1; echo ""; done
+          kubectl create -f manifests/
+          # Scale to 1 replica since the CI kind cluster is single-node and metrics-server
+          # defaults to 2 replicas with hard pod anti-affinity.
+          kubectl scale deployment metrics-server -n monitoring --replicas=1
+      - name: Wait for kube-prometheus stack to finish bootstraping
+        run: kubectl wait --for=condition=Ready pods --all -n monitoring --timeout=300s
+      - name: Check resources in all namespaces
+        if: always()
+        run: |
+          kubectl get nodes -o wide
+          kubectl get services,endpoints,pods,prometheus,alertmanager --all-namespaces
+      - name: Describe non-ready pods
+        if: ${{ failure() }}
+        run: |
+          kubectl get pods -n monitoring --field-selector=status.phase!=Running -o name | xargs -r kubectl describe -n monitoring
+      - name: Check events in all namespaces
+        if: ${{ failure() }}
+        run: kubectl get events --all-namespaces --sort-by='.lastTimestamp'
+      - name: Run metrics-server e2e tests
+        run: |
+          export KUBECONFIG="${HOME}/.kube/config"
+          make test-e2e-metrics-server
+
+  # Added to summarize the matrix and allow easy branch protection rules setup
+  e2e-tests-result:
+    name: End-to-End Test Results
+    if: always()
+    needs:
+      - e2e-tests
+      - e2e-tests-metrics-server
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mark the job as a success
+        if: needs.e2e-tests.result == 'success' && needs.e2e-tests-metrics-server.result == 'success'
+        run: exit 0
+      - name: Mark the job as a failure
+        if: needs.e2e-tests.result != 'success' || needs.e2e-tests-metrics-server.result != 'success'
+        run: exit 1
