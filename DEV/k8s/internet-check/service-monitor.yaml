@@ -1,0 +1,21 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: speedtest-exporter
+  namespace: monitoring  # <-- Criado no namespace do Prometheus
+  labels:
+    app.kubernetes.io/component: exporter
+    app.kubernetes.io/name: speedtest-exporter
+    app.kubernetes.io/part-of: kube-prometheus
+spec:
+  jobLabel: speedtest-exporter
+  namespaceSelector:
+    matchNames:
+      - internet-check-home  # <-- Onde o seu exporter realmente está rodando
+  selector:
+    matchLabels:
+      app: speedtest-exporter
+  endpoints:
+    - port: metrics
+      interval: 60s
+      scrapeTimeout: 30s

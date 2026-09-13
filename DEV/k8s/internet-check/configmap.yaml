@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: speedtest-tracker-config
+  namespace: internet-check-home
+data:
+  TZ: "America/Sao_Paulo"
+  SPEEDTEST_SCHEDULE: "0 * * * *"
+  DB_CONNECTION: "sqlite"
