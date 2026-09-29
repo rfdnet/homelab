@@ -1,0 +1,36 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: speedtest-runner
+  namespace: internet-check-home
+spec:
+  schedule: "0 * * * *"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: speedtest
+            image: python:3.11-slim
+            command: ["/bin/sh", "-c"]
+            args:
+              - |
+                apt-get update && apt-get install -y curl gnupg lsb-release > /dev/null 2>&1
+                curl -s https://packagecloud.io/install/repositories/ookla/speedtest-cli/script.deb.sh | bash > /dev/null 2>&1
+                apt-get install -y speedtest > /dev/null 2>&1
+                sh /scripts/speedtest-to-prom.sh
+            volumeMounts:
+            - name: shared-metrics
+              mountPath: /metrics
+            - name: script-volume
+              mountPath: /scripts
+          restartPolicy: OnFailure
+          volumes:
+          - name: shared-metrics
+            persistentVolumeClaim:
+              claimName: speedtest-metrics-pvc
+          - name: script-volume
+            configMap:
+              name: speedtest-script-cm
+              defaultMode: 0777

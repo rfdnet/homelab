@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: speedtest-exporter-http
+  namespace: internet-check-home
+  labels:
+    app: speedtest-exporter-http
+spec:
+  type: ClusterIP
+  ports:
+    - name: metrics
+      port: 80
+      targetPort: 80
+      protocol: TCP
+  selector:
+    app: speedtest-exporter-http

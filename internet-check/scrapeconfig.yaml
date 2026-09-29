@@ -1,0 +1,13 @@
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: ScrapeConfig
+metadata:
+  name: speedtest-exporter-scrape
+  namespace: monitoring
+spec:
+  staticConfigs:
+    - targets:
+        - "speedtest-exporter.monitoring.svc.cluster.local:9798"
+  metricsPath: /metrics
+  jobName: speedtest-exporter-direct
+  scrapeTimeout: 60s
+  scrapeInterval: 60s

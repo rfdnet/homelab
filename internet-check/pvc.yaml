@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: speedtest-metrics-pvc
+  namespace: internet-check-home
+spec:
+  storageClassName: nfs-client # Ajuste para o nome exato da storageClass do TrueNAS no seu cluster
+  accessModes:
+    - ReadWriteMany # Permite leitura e escrita compartilhada entre nós
+  resources:
+    requests:
+      storage: 1Gi

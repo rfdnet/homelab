@@ -1,0 +1,17 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: speedtest-pod-monitor
+  namespace: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: speedtest-exporter-http
+  namespaceSelector:
+    matchNames:
+      - internet-check-home
+  podMetricsEndpoints:
+  - port: metrics
+    path: /speedtest.prom
+    interval: 60s
+    scrapeTimeout: 30s

@@ -1,0 +1,16 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: minipc-servicemonitor
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/part-of: kube-prometheus
+    release: k8s
+spec:
+  selector:
+    matchLabels:
+      app: minha-aplicacao  # Substitua pela label do seu Service
+  endpoints:
+    - port: http          # Substitua pelo nome ou número da porta configurada no seu Service
+      interval: 30s
+      path: /metrics      # Caminho onde a aplicação expõe as métricas do Prometheus
